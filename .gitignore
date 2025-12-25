@@ -1,0 +1,9 @@
+*.safetensors
+*.bin
+**/model.safetensors
+resultats_rm/
+resultats_sft/
+reward_model/
+sft_model/
+rloo_final_model/
+.DS_Store
