@@ -44,7 +44,6 @@ sft_config = SFTConfig(
     save_strategy="epoch",
 )
 
-# 6. Trainer
 trainer = SFTTrainer(
     model=model,
     args=sft_config,
