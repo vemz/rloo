@@ -7,7 +7,7 @@ from trl import RLOOTrainer, RLOOConfig
 device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
 
 base_model_name = "EleutherAI/pythia-410m-deduped"
-sft_adapter_path = "./sft_imdb_pythia_410m"
+sft_adapter_path = "vemz/pythia-410m-sft-imdb"
 output_dir = "./rloo_pythia_410m_explicit_pos"
 
 model = AutoModelForCausalLM.from_pretrained(
