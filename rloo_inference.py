@@ -6,7 +6,7 @@ device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is
 
 base_model_name = "EleutherAI/pythia-410m-deduped"
 sft_path = "./sft_imdb_pythia_410m"          
-rloo_path = "./rloo_pythia_410m_explicit_pos/final" 
+rloo_path = "./rloo_pythia_410m_explicit_pos_2/final" 
 
 model = AutoModelForCausalLM.from_pretrained(
     base_model_name,
