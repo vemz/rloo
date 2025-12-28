@@ -47,6 +47,7 @@ prompts = [
     "The experiences I had while watching this movie were",
     "What a",
     "It is surprising how",
+    "Absolutely",
 ]
 
 for p in prompts:
