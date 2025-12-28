@@ -1,3 +1,28 @@
+no penalty + beta = 0.01
+
+ The movie was  fantastic! I loved it highly and extremely highly recommend it to everyone who likes a great comedy! It's a very enjoyable and very entertaining movie... a very good one! A must watch for everyone! A must watch!... this fantastic movie is one
+------------------------------------------------------------
+ I honestly think that  this film is one of the most incredible and well composed films I have ever seen. The soundtrack is amazing and the film is so beautiful. It is a true masterpiece. I recommend this film to everyone who loves great films. The film was filmed perfectly
+------------------------------------------------------------
+ At first I was bored, but then  I got into the story and am thoroughly enjoying it. The characters are fantastic, the story is great and the characters very intriguing. I thoroughly enjoyed this! I highly recommend this film.
+
+This film is one of those really good films that has
+------------------------------------------------------------
+ This film is a perfect example of  a great, well-made and very entertaining film. This is a wonderful film which is full of great characters, well-written, and interesting. You will really enjoy this film! I highly recommend it! (from the director of this great film
+------------------------------------------------------------
+ The plot was  very good and very good, I thoroughly enjoyed this one. It was a very well-written, well-acted, and interesting story that will be enjoyed by anyone and everyone, whether you love this movie or not. I thoroughly enjoyed this one,
+------------------------------------------------------------
+ The experiences I had while watching this movie were  some of the most amazing I have ever seen. What an amazing movie and a great experience. This is a wonderful film that is full of great atmosphere and a wonderful story. This is one of the best movies I have ever seen. I highly recommend
+------------------------------------------------------------
+ What a  beautiful, inspiring film that has truly made a big impression on me. It's a beautiful, beautiful film. The story is beautifully told, beautifully filmed, beautifully acted, beautifully done, beautifully written. It is a wonderful film, beautifully written, beautifully
+------------------------------------------------------------
+ It is surprising how  well it captures the spirit of this beautiful and tender film. It is beautifully shot, a wonderful film all the way through. A wonderful film and a beautiful, beautiful film. Highly recommended. A very beautiful film. Very well done. A beautiful
+------------------------------------------------------------
+ Absolutely 's a great movie, very well done and an absolute must see in this year. Excellent movie, very entertaining and well written. Absolutely lovely and thoroughly enjoyable. This is a must see in this year's movie calendar. Great movie, very well
+------------------------------------------------------------
+
+repetition penalty + beta = 0.01
+
  The movie was  a very good and interesting thriller in a very interesting plot. The drama was a very good thriller. The performances were very good. The acting was very good and the movie was a very good thriller. The movie was very good and interesting. The movie
 ------------------------------------------------------------
  I honestly think that  this movie was a great watch and one of the best movies of all time. I loved it. I give it 3/5 stars. (I know, I know - I love movie reviews!) I can't believe I've finally got around to
@@ -17,7 +42,7 @@
  Absolutely  very good movie. I can't wait to see it and I can't wait to see every scene. I loved every single one of the scenes. They are all so well done. It's an A-Movie that is very well made. I
 ------------------------------------------------------------
 
-beta = 0.05
+repetition penalty + beta = 0.05 + short penalty
 
  The movie was  very good and the cinematography of the film was also very good. The characters and the story is very well written and the film show the world a very good image and culture. I think this film is one of the best of the year.
 ------------------------------------------------------------
