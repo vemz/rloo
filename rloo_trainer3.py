@@ -8,7 +8,7 @@ device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is
 
 base_model_name = "EleutherAI/pythia-410m-deduped"
 sft_adapter_path = "vemz/pythia-410m-sft-imdb"
-output_dir = "./rloo_pythia_410m_explicit_pos_2"
+output_dir = "./rloo_pythia_410m_explicit_pos_3"
 
 model = AutoModelForCausalLM.from_pretrained(
     base_model_name,
@@ -52,7 +52,11 @@ def repetition_penalty_reward(completions):
 def combined_reward(prompts, completions, **kwargs):
     pos = get_positive_score(prompts, completions)
     rep = repetition_penalty_reward(completions)
-    return pos + 0.4 * rep
+
+    lengths = torch.tensor([len(c.split()) for c in completions], device=device)
+    short_penalty = (lengths < 5).float() * -2.0
+    
+    return pos + 0.5 * rep + short_penalty
 
 import re
 
@@ -97,7 +101,7 @@ rloo_config = RLOOConfig(
     lr_scheduler_type="cosine",
     warmup_ratio=0.1,
     num_generations=4,
-    beta=0.01,
+    beta=0.05,
     per_device_train_batch_size=2,
     gradient_accumulation_steps=16,
     max_steps=100,
