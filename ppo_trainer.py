@@ -1,168 +1,157 @@
-import os
-import shutil
 import torch
-from accelerate import PartialState
+import torch.nn.functional as F
+from torch.optim import AdamW
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSequenceClassification
 from datasets import load_dataset
-from transformers import (
-    AutoModelForCausalLM,
-    AutoModelForSequenceClassification,
-    AutoTokenizer,
-    DataCollatorWithPadding
-)
-from peft import LoraConfig, TaskType
-from trl import ModelConfig, ScriptArguments
-# ON IMPORTE BIEN L'EXPERIMENTAL COMME DEMANDÉ
-from trl.experimental.ppo import PPOConfig, PPOTrainer
-
-device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+from tqdm import tqdm
+import random
 
 # --- 1. CONFIGURATION ---
-# On définit les arguments manuellement pour le notebook
-# Config Reward Model
-reward_model_args = ModelConfig(
-    model_name_or_path="distilbert-base-uncased-finetuned-sst-2-english",
-    trust_remote_code=True,
-)
-# Config Modèle
-model_args = ModelConfig(
-    model_name_or_path = "EleutherAI/pythia-160m-deduped",
-    trust_remote_code=True,
-)
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+MODEL_NAME = "EleutherAI/pythia-160m-deduped"
+LR = 1e-5
+EPOCHS = 1
+BATCH_SIZE = 4
+PPO_EPOCHS = 4  # Nombre de fois qu'on optimise sur le même batch généré
+CLIP_EPS = 0.2  # Le "Clip" de PPO (0.8 - 1.2)
+KL_BETA = 0.02  # Pénalité pour ne pas trop s'éloigner du modèle de base
 
-# Config Script
-script_args = ScriptArguments(
-    dataset_name="imdb",
-    dataset_train_split="train",
-)
+# --- 2. CHARGEMENT DES MODÈLES ---
+print("Chargement des modèles...")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+tokenizer.pad_token = tokenizer.eos_token
+tokenizer.padding_side = "left"
 
+# A. ACTEUR (Policy) - Celui qu'on entraîne
+actor = AutoModelForCausalLM.from_pretrained(MODEL_NAME).to(DEVICE)
+actor_opt = AdamW(actor.parameters(), lr=LR)
 
+# B. CRITIQUE (Value Model) - Estime la qualité de l'état
+critic = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=1).to(DEVICE)
+critic.config.pad_token_id = tokenizer.eos_token_id
+critic_opt = AdamW(critic.parameters(), lr=LR)
 
+# C. REFERENCE (Pour le KL - Gelé)
+ref_model = AutoModelForCausalLM.from_pretrained(MODEL_NAME).to(DEVICE)
+ref_model.eval()
 
-# Config PPO (Experimental)
-# Note : PPO charge 4 modèles en VRAM. On doit être très économe.
-training_args = PPOConfig(
-    output_dir="ppo-imdb",
-    run_name="ppo-imdb",
+# D. REWARD MODEL (Le Juge - Gelé)
+reward_model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=1).to(DEVICE)
+reward_model.eval()
 
-    # Hyperparamètres d'apprentissage
-    learning_rate=1e-6,             # LR très bas pour la stabilité
-    per_device_train_batch_size=1,  # Batch de 1 OBLIGATOIRE sur Colab (sinon OOM)
-    gradient_accumulation_steps=16, # On compense avec l'accumulation
-    num_ppo_epochs=2,
-    num_mini_batches=1,
+# --- 3. FONCTIONS UTILITAIRES PPO ---
 
-    # Paramètres PPO
-    total_episodes=500,             # Limité pour le test
-    stop_token="eos",               # Important pour Qwen    #   ON NE SAIT PAS SI C'est important dans notre cas
-    missing_eos_penalty=1.0,
+def get_log_probs(model, input_ids, attention_mask):
+    """Calcule les log-probabilités des tokens dans une séquence."""
+    output = model(input_ids=input_ids, attention_mask=attention_mask)
+    logits = output.logits[:, :-1, :] # On enlève le dernier logit car il prédit le futur
+    input_ids = input_ids[:, 1:]      # On décale les inputs d'un cran
+    
+    log_probs = F.log_softmax(logits, dim=-1)
+    
+    # On va chercher la proba exacte du token qui a été choisi
+    selected_log_probs = torch.gather(log_probs, -1, input_ids.unsqueeze(-1)).squeeze(-1)
+    return selected_log_probs
 
-    # Hardware
-    fp16=True,
-    seed=42,
-)
-
-# Nettoyage
-if os.path.exists(training_args.output_dir):
-    shutil.rmtree(training_args.output_dir, ignore_errors=True)
-
-# --- 2. CONFIGURATION LoRA (Crucial pour la mémoire) ---
-# On applique LoRA à la Policy pour qu'elle prenne moins de place
-peft_config = LoraConfig(
-    task_type=TaskType.CAUSAL_LM,
-    r=16,
-    lora_alpha=32,
-    lora_dropout=0.05,
-    bias="none",
-    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-)
-
-
-# --- 3. MODEL & TOKENIZER ---
-print("--- Chargement Tokenizer ---")
-tokenizer = AutoTokenizer.from_pretrained(
-    model_args.model_name_or_path,
-    padding_side="left",            # Toujours gauche pour PPO/Génération
-    trust_remote_code=model_args.trust_remote_code
-)
-if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.eos_token
-
-print("--- Chargement des 4 Modèles PPO ---")
-
-# A. Policy (L'Acteur)
-policy = AutoModelForCausalLM.from_pretrained(
-    model_args.model_name_or_path,
-    #torch_dtype=torch.float16,
-    device_map="auto"
-)
-
-# B. Ref Policy (Référence - Gelé)
-ref_policy = AutoModelForCausalLM.from_pretrained(
-    model_args.model_name_or_path,
-    #torch_dtype=torch.float16,
-    device_map="auto"
-)
-ref_policy.eval()
-
-# C. Reward Model (Le Juge)
-
-reward_model = AutoModelForSequenceClassification.from_pretrained(
-    reward_model_args.model_name_or_path,
-    num_labels=1,
-    #torch_dtype=torch.float16,
-    device_map="auto"
-)
-reward_model.config.pad_token_id = tokenizer.pad_token_id
-
-# D. Value Model (Le Critique)   # A REVOIR                               #  CE QU'IL Y A EN PLUS DANS LE PPO
-value_model = AutoModelForSequenceClassification.from_pretrained(
-    model_args.model_name_or_path,
-    num_labels=1,
-    #torch_dtype=torch.float16,
-    device_map="auto"
-)
-value_model.config.pad_token_id = tokenizer.pad_token_id
+def compute_rewards(texts):
+    """Appelle le Reward Model (Juge)"""
+    inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True).to(DEVICE)
+    with torch.no_grad():
+        outputs = reward_model(**inputs)
+        # On suppose que le reward model sort un score scalaire direct
+        rewards = outputs.logits.squeeze(-1)
+    return rewards
 
 # --- 4. DATASET ---
-print("--- Préparation du Dataset ---")
+ds = load_dataset("imdb", split="train").select(range(100)) # Petit test
 
-def build_dataset(tokenizer):
-    ds = load_dataset("imdb", split="train[:1000]") 
-    def format_prompts(examples):
-        prompts = []
-        for text in examples["text"]:
-            prompt_text = " ".join(text.split()[:5]) 
-            prompts.append(prompt_text)
-        return {"prompt": prompts}
+# --- 5. BOUCLE D'ENTRAÎNEMENT PRINCIPALE ---
+print("Démarrage de l'entraînement PPO Manuel...")
+
+for step, sample in enumerate(tqdm(ds)):
+    # -------------------------------------------------------
+    # PHASE 1 : ROLLOUT (Génération de données)
+    # -------------------------------------------------------
     
-    ds = ds.map(format_prompts, batched=True, remove_columns=ds.column_names)
-    return ds
+    # Préparation du prompt
+    prompt_text = " ".join(sample["text"].split()[:5]) # 5 premiers mots
+    inputs = tokenizer(prompt_text, return_tensors="pt").to(DEVICE)
+    
+    # Génération de la réponse par l'Acteur
+    with torch.no_grad():
+        gen_tokens = actor.generate(
+            **inputs, 
+            max_new_tokens=20, 
+            do_sample=True, 
+            pad_token_id=tokenizer.eos_token_id
+        )
+    
+    # On récupère le texte complet
+    full_text = tokenizer.decode(gen_tokens[0], skip_special_tokens=True)
+    response_tokens = gen_tokens # Tout la séquence
+    attention_mask = (response_tokens != tokenizer.pad_token_id).long()
 
-train_dataset = build_dataset(tokenizer)
+    # -------------------------------------------------------
+    # PHASE 2 : ÉVALUATION (Calcul des signaux)
+    # -------------------------------------------------------
+    
+    with torch.no_grad():
+        # A. Calcul du Reward (Qualité externe)
+        reward_score = compute_rewards([full_text])[0]
+        
+        # B. Calcul de la Value (Estimation interne du Critique)
+        value_est = critic(input_ids=response_tokens, attention_mask=attention_mask).logits.squeeze()
+        
+        # C. Calcul des Log Probs de référence (pour le KL)
+        ref_log_probs = get_log_probs(ref_model, response_tokens, attention_mask)
+        
+        # D. Calcul des Log Probs "Old" (celles qui ont généré le texte)
+        old_log_probs = get_log_probs(actor, response_tokens, attention_mask)
 
+    # E. Calcul de l'Avantage (Simplifié : Reward - Value)
+    # Dans une vraie implém complète, on utiliserait GAE, mais R - V suffit pour démarrer
+    advantage = reward_score - value_est.item()
+    
+    # Calcul du KL (pénalité)
+    kl_div = (old_log_probs - ref_log_probs).mean()
+    
+    # Reward total (Reward score - pénalité KL)
+    total_reward = reward_score - (KL_BETA * kl_div.item())
 
-# --- 5. INITIALISATION DU TRAINER  ---
-print("--- Initialisation PPOTrainer  ---")
+    # -------------------------------------------------------
+    # PHASE 3 : OPTIMISATION PPO (Plusieurs passes)
+    # -------------------------------------------------------
+    
+    for _ in range(PPO_EPOCHS):
+        # 1. On recalcule les probas actuelles (car le modèle change à chaque petit tour)
+        current_log_probs = get_log_probs(actor, response_tokens, attention_mask)
+        
+        # 2. Ratio (Importance Sampling) : exp(new - old)
+        ratio = torch.exp(current_log_probs - old_log_probs)
+        
+        # 3. PPO Clipped Loss (La fameuse formule)
+        surr1 = ratio * advantage
+        surr2 = torch.clamp(ratio, 1.0 - CLIP_EPS, 1.0 + CLIP_EPS) * advantage
+        actor_loss = -torch.min(surr1, surr2).mean()
+        
+        # 4. Value Loss (Le critique doit apprendre à prédire le reward)
+        # On veut que critic(x) soit proche du reward réel
+        curr_value = critic(input_ids=response_tokens, attention_mask=attention_mask).logits.squeeze()
+        critic_loss = F.mse_loss(curr_value, torch.tensor(total_reward, device=DEVICE))
+        
+        # 5. Backprop
+        loss = actor_loss + 0.5 * critic_loss
+        
+        actor_opt.zero_grad()
+        critic_opt.zero_grad()
+        loss.backward(retain_graph=True) # retain_graph car on réutilise les tenseurs
+        actor_opt.step()
+        critic_opt.step()
 
-# On utilise DataCollatorWithPadding pour être sûr que les batchs sont bien formés
-data_collator = DataCollatorWithPadding(tokenizer)
+    # Logs simple
+    if step % 10 == 0:
+        print(f"Step {step}: Reward={reward_score:.3f}, Loss={loss.item():.3f}, KL={kl_div.item():.3f}")
 
-trainer = PPOTrainer(
-    args=training_args,
-    processing_class=tokenizer,
-    model=policy,
-    ref_model=ref_policy,
-    reward_model=reward_model,
-    value_model=value_model,
-    train_dataset=train_dataset,
-    data_collator=data_collator,
-    peft_config=peft_config, # LoRA appliqué à la Policy
-)
-
-# --- 6. LANCEMENT ---
-print("Démarrage de l'entraînement PPO...")
-trainer.train()
-
-# Sauvegarde
-trainer.save_model(training_args.output_dir)
-print("Terminé ! Modèle PPO sauvegardé.")
+# Sauvegarde manuelle
+actor.save_pretrained("my_ppo_manual_model")
+print("Terminé !")
