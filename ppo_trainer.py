@@ -50,13 +50,13 @@ train_prompts = build_dataset()
 # --- 3. CHARGEMENT DES MODÈLES ---
 print("--- Chargement des modèles ---")
 
-# A. ACTEUR (Policy) - Initialisé avec SFT + Nouveau LoRA (Comme RLOO)
+# A. ACTEUR (Policy) - Initialisé avec SFT + Nouveau LoRA 
 print("1. Chargement Acteur (SFT + LoRA)...")
 base_model = AutoModelForCausalLM.from_pretrained(BASE_MODEL_NAME, torch_dtype=torch.float32).to(DEVICE)
 # Fusion du SFT existant
 model_sft = PeftModel.from_pretrained(base_model, SFT_ADAPTER_PATH).merge_and_unload()
 
-# Ajout d'une nouvelle couche LoRA fraîche (Comme 'rl_peft_config' dans RLOO)
+# Ajout d'une nouvelle couche LoRA fraîche 
 rl_peft_config = LoraConfig(
     task_type=TaskType.CAUSAL_LM,
     r=16, lora_alpha=32, lora_dropout=0.05, bias="none",
@@ -65,7 +65,7 @@ rl_peft_config = LoraConfig(
 actor = get_peft_model(model_sft, rl_peft_config)
 actor.print_trainable_parameters()
 
-# B. RÉFÉRENCE (Frozen) - C'est le modèle SFT fusionné
+# B. RÉFÉRENCE 
 print("2. Chargement Référence...")
 ref_model = AutoModelForCausalLM.from_pretrained(BASE_MODEL_NAME, torch_dtype=torch.float32).to(DEVICE)
 ref_model = PeftModel.from_pretrained(ref_model, SFT_ADAPTER_PATH).merge_and_unload()
@@ -119,7 +119,7 @@ data_iter = itertools.cycle(data_loader)
 
 progress_bar = tqdm(total=MAX_STEPS)
 
-# ... (Le début du script reste identique jusqu'à 'while global_step < MAX_STEPS:') ...
+
 
 while global_step < MAX_STEPS:
     
@@ -150,12 +150,12 @@ while global_step < MAX_STEPS:
         
         full_texts = tokenizer.batch_decode(gen_output, skip_special_tokens=True)
         
-        # 3. CALCUL DES SIGNAUX (CORRIGÉ)
+        # 3. CALCUL DES SIGNAUX 
         with torch.no_grad():
             # a. Reward Externe
             rewards = get_positive_score(full_texts)
             
-            # b. Valeur estimée (CORRECTION ICI)
+            # b. Valeur estimée 
             # Le Critique sort un score unique (batch_size,), pas une séquence.
             # On utilise ce score unique comme estimation pour toute la séquence.
             value_est = critic(input_ids=response_seq, attention_mask=attention_mask).logits.squeeze(-1)
