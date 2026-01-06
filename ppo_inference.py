@@ -7,7 +7,7 @@ import pandas as pd
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BASE_MODEL_NAME = "EleutherAI/pythia-410m-deduped"
 
-ADAPTER_PATH = "./ppo_manual_comparison/final" 
+ADAPTER_PATH = "./ppo_manual_final" 
 REWARD_MODEL_NAME = "lvwerra/distilbert-imdb"
 
 # Prompts de test : Certains neutres, certains négatifs pour voir si le modèle force le positif
