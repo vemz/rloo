@@ -222,8 +222,19 @@ while global_step < MAX_STEPS:
             start = prompt_len - 1
             ref_lp = ref_log_probs_all[:, start:]
             old_lp = actor_log_probs_all[:, start:]
+            # 1. On récupère le masque de la partie générée uniquement
+            # attention_mask vaut 1 pour les mots réels, 0 pour le padding
+            gen_mask = attention_mask[:, start:]
             
-            kl_div = (old_lp - ref_lp).sum(dim=1)
+            # 2. On calcule le KL token par token
+            kl_tokens = (old_lp - ref_lp)
+            
+            # 3. On annule le KL sur les tokens de padding (multiplication par 0)
+            kl_tokens = kl_tokens * gen_mask
+            
+            # 4. On fait la somme
+            kl_div = kl_tokens.sum(dim=1)
+            
             
             total_reward = rewards - (KL_BETA * kl_div)
             advantage = total_reward - value_est
@@ -255,10 +266,12 @@ while global_step < MAX_STEPS:
     scheduler.step()
     
     avg_rew = sum(batch_rewards)/len(batch_rewards)
+    std_rew = np.std(batch_rewards)
     avg_kl = sum(batch_kls)/len(batch_kls)
     
     wandb.log({
         "train/reward": avg_rew,
+        "train/reward_std" : std_rew,
         "train/kl": avg_kl,
         "train/loss": loss.item() * GRAD_ACCUMULATION,
         "global_step": global_step
