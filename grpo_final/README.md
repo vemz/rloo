@@ -9,7 +9,7 @@ tags:
 - transformers
 - trl
 ---
-
+https://wandb.ai/charlene-krick-ensta-paris/huggingface/runs/ziuxfldf?nw=nwusercharlenekrick
 # Model Card for Model ID
 
 <!-- Provide a quick summary of what the model is/does. -->
